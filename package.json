@@ -1,0 +1,20 @@
+{
+  "name": "tuya-open-meteo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "node ./set-runner-path.js && chmod +x ./runner.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "nodemailer": "^7.0.6",
+    "openmeteo": "^1.2.0",
+    "tuyapi": "github:codetheweb/tuyapi"
+  }
+}
