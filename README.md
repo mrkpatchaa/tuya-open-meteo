@@ -1,5 +1,5 @@
 
-# Solar Heater Control with wheater monitoring
+# Solar Heater Control with weather monitoring from Open Meteo
 
 Configured to run everyday at 4 pm, via cron
 
