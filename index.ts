@@ -1,4 +1,4 @@
-import { fetchWeatherApi } from "openmeteo";
+// import { fetchWeatherApi } from "openmeteo";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import TuyAPI from "tuyapi";
@@ -40,51 +40,50 @@ async function sendEmail(subject: string, text: string) {
 }
 
 async function getAverageCloudCover(): Promise<number> {
-  const params = {
-    latitude: process.env.LATITUDE,
-    longitude: process.env.LONGITUDE,
-    hourly: "cloud_cover",
-    timezone: "auto",
-    forecast_days: 1,
-  };
-  const url = "https://api.open-meteo.com/v1/forecast";
-  const responses = await fetchWeatherApi(url, params);
+  // const params = {
+  //   latitude: process.env.LATITUDE,
+  //   longitude: process.env.LONGITUDE,
+  //   hourly: "cloud_cover",
+  //   timezone: "auto",
+  //   forecast_days: 1,
+  // };
+  // const url = "https://api.open-meteo.com/v1/forecast";
+  // const responses = await fetchWeatherApi(url, params);
 
-  // Process first location. Add a for-loop for multiple locations or weather models
-  const response = responses[0];
+  // // Process first location. Add a for-loop for multiple locations or weather models
+  // const response = responses[0];
 
-  const utcOffsetSeconds = response.utcOffsetSeconds();
-  const hourly = response.hourly()!;
+  // const hourly = response.hourly()!;
+  // console.log(hourly)
+  // const weatherData = {
+  //   hourly: {
+  //     cloud_cover: hourly.variables(0)!.valuesArray(),
+  //   },
+  // };
 
-  const weatherData = {
-    hourly: {
-      time: [
-        ...Array(
-          (Number(hourly.timeEnd()) - Number(hourly.time())) / hourly.interval()
-        ),
-      ].map(
-        (_, i) =>
-          new Date(
-            (Number(hourly.time()) + i * hourly.interval() + utcOffsetSeconds) *
-              1000
-          )
-      ),
-      cloud_cover: hourly.variables(0)!.valuesArray(),
-    },
-  };
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${process.env.LATITUDE}&longitude=${process.env.LONGITUDE}&hourly=cloud_cover&timezone=auto&forecast_days=1`;
 
-  // We're interested in cloud cover between 9am and 4pm local time
-  const startHour = 9;
-  const endHour = 16;
+  try {
+    const response = await fetch(url);
 
-  const cloudCoverDaytime = weatherData.hourly.cloud_cover.slice(
-    startHour,
-    endHour
-  );
-  const cloudCoverDaytimeAvg =
-    cloudCoverDaytime.reduce((a, b) => a + b, 0) / cloudCoverDaytime.length;
+    if (!response.ok) {
+      console.log(`HTTP error! status: ${response.status}`);
+      return -1; // Indicate an error occurred
+    }
 
-  return cloudCoverDaytimeAvg;
+    const data = await response.json();
+    // We're interested in cloud cover between 9am and 4pm local time
+
+    const cloudCoverDaytime = data.hourly.cloud_cover.slice(9, 16);
+    const cloudCoverDaytimeAvg =
+      cloudCoverDaytime.reduce((a, b) => a + b, 0) / cloudCoverDaytime.length;
+
+    return cloudCoverDaytimeAvg;
+
+  } catch (error) {
+    console.log('Error fetching data:', error);
+    return -1; // Indicate an error occurred
+  }
 }
 
 async function setDeviceStatus(status: boolean) {
@@ -100,6 +99,12 @@ async function setDeviceStatus(status: boolean) {
   device.find().then(() => {
     // Connect to device
     device.connect();
+  }).catch((error) => {
+    console.log("Failed to find device:", error);
+    sendEmail(
+      "Error Connecting to Device",
+      `There was an error connecting to the device: ${error.message}`
+    );
   });
 
   // Add event listeners
@@ -154,5 +159,14 @@ async function setDeviceStatus(status: boolean) {
 const cloudCoverDaytimeAvg = await getAverageCloudCover();
 console.log(`Average daytime cloud cover: ${cloudCoverDaytimeAvg}%`);
 
-// If cloud cover is above 70% we can switch on the solar panels
-setDeviceStatus(cloudCoverDaytimeAvg > 70);
+// -1 mean something when wrong when fetching data
+if (cloudCoverDaytimeAvg > -1) {
+  // If cloud cover is above 70% we can switch on the solar panels
+  setDeviceStatus(cloudCoverDaytimeAvg > 70);
+}
+else {
+  sendEmail(
+    "Error Fetching Weather Data",
+    "There was an error fetching the weather data. Please check the logs for details."
+  );
+}
