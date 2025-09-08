@@ -90,8 +90,10 @@ async function setDeviceStatus(status: boolean) {
   const device = new TuyAPI({
     id: process.env.TUYA_DEVICE_ID,
     key: process.env.TUYA_DEVICE_KEY,
-    //   issueGetOnConnect: false,
-    //   issueRefreshOnConnect: true,
+    // version: '3.3',
+    // ip: '196.64.124.173',
+      // issueGetOnConnect: false,
+      // issueRefreshOnConnect: true,
   });
   let stateHasChanged = false;
 
