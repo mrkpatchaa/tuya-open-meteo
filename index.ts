@@ -1,9 +1,6 @@
 // import { fetchWeatherApi } from "openmeteo";
 import nodemailer from "nodemailer";
-import dotenv from "dotenv";
 import TuyAPI from "tuyapi";
-
-dotenv.config();
 
 // Capture logs
 const logBuffer: string[] = [];
@@ -92,8 +89,8 @@ async function setDeviceStatus(status: boolean) {
     key: process.env.TUYA_DEVICE_KEY,
     // version: '3.3',
     // ip: '196.64.124.173',
-      // issueGetOnConnect: false,
-      // issueRefreshOnConnect: true,
+    // issueGetOnConnect: false,
+    // issueRefreshOnConnect: true,
   });
   let stateHasChanged = false;
 
@@ -163,8 +160,8 @@ console.log(`Average daytime cloud cover: ${cloudCoverDaytimeAvg}%`);
 
 // -1 mean something when wrong when fetching data
 if (cloudCoverDaytimeAvg > -1) {
-  // If cloud cover is above 70% we can switch on the solar panels
-  setDeviceStatus(cloudCoverDaytimeAvg > 70);
+  // If cloud cover is above 75% we can switch on the solar panels
+  setDeviceStatus(cloudCoverDaytimeAvg > 75);
 }
 else {
   sendEmail(
