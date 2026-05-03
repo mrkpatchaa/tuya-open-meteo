@@ -1,18 +1,21 @@
 {
   "name": "tuya-open-meteo",
   "version": "1.0.0",
-  "description": "",
+  "description": "Automate a solar heater via Tuya Cloud API based on daily cloud cover forecast",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "node --env-file=.env index.ts",
+    "start": "tsx index.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "nodemailer": "^7.0.6",
-    "openmeteo": "^1.2.0",
-    "tuyapi": "github:codetheweb/tuyapi"
+    "nodemailer": "^7.0.6"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4",
+    "@types/nodemailer": "^6.4.17"
   }
 }

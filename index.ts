@@ -1,8 +1,7 @@
-// import { fetchWeatherApi } from "openmeteo";
 import nodemailer from "nodemailer";
-import TuyAPI from "tuyapi";
+import { createHash, createHmac } from "crypto";
 
-// Capture logs
+// Capture logs so they can be included in notification emails
 const logBuffer: string[] = [];
 const originalConsoleLog = console.log;
 console.log = (...args: any[]) => {
@@ -11,18 +10,21 @@ console.log = (...args: any[]) => {
   originalConsoleLog(...args);
 };
 
+// ---------------------------------------------------------------------------
+// Email
+// ---------------------------------------------------------------------------
+
 async function sendEmail(subject: string, text: string) {
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT),
-    secure: false, // true for 465, false for other ports
+    secure: false,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
   });
 
-  // Append logs to the email body
   const logs = logBuffer.join("\n");
   const emailBody = `${text}\n\n---\nConsole Logs:\n${logs}`;
 
@@ -36,136 +38,188 @@ async function sendEmail(subject: string, text: string) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Open-Meteo weather
+// ---------------------------------------------------------------------------
+
 async function getAverageCloudCover(): Promise<number> {
-  // const params = {
-  //   latitude: process.env.LATITUDE,
-  //   longitude: process.env.LONGITUDE,
-  //   hourly: "cloud_cover",
-  //   timezone: "auto",
-  //   forecast_days: 1,
-  // };
-  // const url = "https://api.open-meteo.com/v1/forecast";
-  // const responses = await fetchWeatherApi(url, params);
-
-  // // Process first location. Add a for-loop for multiple locations or weather models
-  // const response = responses[0];
-
-  // const hourly = response.hourly()!;
-  // console.log(hourly)
-  // const weatherData = {
-  //   hourly: {
-  //     cloud_cover: hourly.variables(0)!.valuesArray(),
-  //   },
-  // };
-
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${process.env.LATITUDE}&longitude=${process.env.LONGITUDE}&hourly=cloud_cover&timezone=auto&forecast_days=1`;
-
+  console.log(url);
   try {
     const response = await fetch(url);
 
     if (!response.ok) {
-      console.log(`HTTP error! status: ${response.status}`);
-      return -1; // Indicate an error occurred
+      console.log(`HTTP error fetching weather: ${response.status}`);
+      return -1;
     }
 
     const data = await response.json();
-    // We're interested in cloud cover between 9am and 4pm local time
 
+    // Average cloud cover between 9 am and 4 pm local time
     const cloudCoverDaytime = data.hourly.cloud_cover.slice(9, 16);
-    const cloudCoverDaytimeAvg =
-      cloudCoverDaytime.reduce((a, b) => a + b, 0) / cloudCoverDaytime.length;
+    const avg =
+      cloudCoverDaytime.reduce((a: number, b: number) => a + b, 0) /
+      cloudCoverDaytime.length;
 
-    return cloudCoverDaytimeAvg;
-
+    return avg;
   } catch (error) {
-    console.log('Error fetching data:', error);
-    return -1; // Indicate an error occurred
+    console.log("Error fetching weather data:", error);
+    return -1;
   }
 }
 
-async function setDeviceStatus(status: boolean) {
-  const device = new TuyAPI({
-    id: process.env.TUYA_DEVICE_ID,
-    key: process.env.TUYA_DEVICE_KEY,
-    // version: '3.3',
-    // ip: '196.64.124.173',
-    // issueGetOnConnect: false,
-    // issueRefreshOnConnect: true,
-  });
-  let stateHasChanged = false;
+// ---------------------------------------------------------------------------
+// Tuya Cloud API helpers
+// ---------------------------------------------------------------------------
 
-  // Find device on network
-  device.find().then(() => {
-    // Connect to device
-    device.connect();
-  }).catch((error) => {
-    console.log("Failed to find device:", error);
-    sendEmail(
-      "Error Connecting to Device",
-      `There was an error connecting to the device: ${error.message}`
-    );
-  });
+const TUYA_BASE_URL = process.env.TUYA_BASE_URL ?? "https://openapi.tuyaeu.com";
 
-  // Add event listeners
-  device.on("connected", () => {
-    console.log("Connected to device!");
-    device.set({ set: status });
-    if (status) {
-      console.log("It's a cloudy day, we can switch on the solar panels!");
-      // and send an email to confirm We switch on the panels here
-      sendEmail(
-        "Solar Heater Activated",
-        "The solar heater has been switched on due to high cloud cover."
-      );
-    } else {
-      console.log("It's a sunny day, no need to switch on the solar heater.");
-      sendEmail(
-        "Solar Heater Deactivated",
-        "The solar heater has been switched off due to low cloud cover."
-      );
-    }
-  });
-
-  device.on("disconnected", () => {
-    console.log("Disconnected from device.");
-  });
-
-  device.on("error", (error) => {
-    console.log("Error!", error);
-  });
-
-  //   device.on("data", (data) => {
-  //     console.log("Data from device:", data);
-
-  //     console.log(`Boolean status of default property: ${data.dps["1"]}.`);
-
-  //     // Set default property to opposite
-  //     if (!stateHasChanged) {
-  //       device.set({ set: !data.dps["1"] });
-
-  //       // Otherwise we'll be stuck in an endless
-  //       // loop of toggling the state.
-  //       stateHasChanged = true;
-  //     }
-  //   });
-
-  // Disconnect after 10 seconds
-  setTimeout(() => {
-    device.disconnect();
-  }, 10000);
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
 }
+
+function hmacSha256(str: string, secret: string): string {
+  return createHmac("sha256", secret).update(str).digest("hex").toUpperCase();
+}
+
+async function tuyaRequest(
+  method: string,
+  path: string,
+  body: object | null = null,
+  accessToken?: string,
+): Promise<any> {
+  const accessId = process.env.TUYA_ACCESS_ID!;
+  const accessSecret = process.env.TUYA_ACCESS_SECRET!;
+  const timestamp = Date.now().toString();
+
+  const bodyStr = body ? JSON.stringify(body) : "";
+  const contentHash = sha256(bodyStr);
+
+  // Tuya OpenAPI v1 signing: method + \n + body_hash + \n + (no custom headers) + \n + path
+  const stringToSign = `${method}\n${contentHash}\n\n${path}`;
+
+  // Without access token (for /token endpoint): client_id + t + string_to_sign
+  // With access token (for all other calls): client_id + access_token + t + string_to_sign
+  const signStr = accessToken
+    ? `${accessId}${accessToken}${timestamp}${stringToSign}`
+    : `${accessId}${timestamp}${stringToSign}`;
+
+  const sign = hmacSha256(signStr, accessSecret);
+
+  const headers: Record<string, string> = {
+    client_id: accessId,
+    sign,
+    t: timestamp,
+    sign_method: "HMAC-SHA256",
+    "Content-Type": "application/json",
+  };
+
+  if (accessToken) {
+    headers.access_token = accessToken;
+  }
+
+  const res = await fetch(`${TUYA_BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body ? bodyStr : undefined,
+  });
+
+  return res.json();
+}
+
+async function getAccessToken(): Promise<string> {
+  const data = await tuyaRequest("GET", "/v1.0/token?grant_type=1");
+  if (!data.success) {
+    throw new Error(`Failed to get Tuya access token: ${JSON.stringify(data)}`);
+  }
+  console.log("Tuya access token obtained.");
+  return data.result.access_token;
+}
+
+// ---------------------------------------------------------------------------
+// Device control
+// ---------------------------------------------------------------------------
+
+async function resolveSwitchCode(deviceId: string, accessToken: string): Promise<string> {
+  // Allow explicit override via env var (e.g. TUYA_SWITCH_CODE=switch_1)
+  if (process.env.TUYA_SWITCH_CODE) {
+    return process.env.TUYA_SWITCH_CODE;
+  }
+
+  // Query the device's supported functions to discover the correct DP code
+  const result = await tuyaRequest(
+    "GET",
+    `/v1.0/devices/${deviceId}/functions`,
+    null,
+    accessToken,
+  );
+
+  if (!result.success) {
+    console.log("Could not fetch device functions, falling back to 'switch_1':", JSON.stringify(result));
+    return "switch_1";
+  }
+
+  const functions: Array<{ code: string; type: string }> = result.result?.functions ?? [];
+  console.log("Device functions:", functions.map((f) => `${f.code} (${f.type})`).join(", "));
+
+  // Pick the first Boolean DP whose code looks like a switch/power/relay
+  const switchFn =
+    functions.find((f) => f.type === "Boolean" && /switch|power|relay/i.test(f.code)) ??
+    functions.find((f) => f.type === "Boolean");
+
+  const code = switchFn?.code ?? "switch_1";
+  console.log(`Using DP code: "${code}"`);
+  return code;
+}
+
+async function setDeviceStatus(status: boolean): Promise<void> {
+  try {
+    const accessToken = await getAccessToken();
+    const deviceId = process.env.TUYA_DEVICE_ID!;
+
+    const switchCode = await resolveSwitchCode(deviceId, accessToken);
+
+    const result = await tuyaRequest(
+      "POST",
+      `/v1.0/devices/${deviceId}/commands`,
+      { commands: [{ code: switchCode, value: status }] },
+      accessToken,
+    );
+
+    if (!result.success) {
+      throw new Error(`Tuya command failed: ${JSON.stringify(result)}`);
+    }
+
+    console.log(`Device turned ${status ? "ON" : "OFF"} via Tuya Cloud API (DP: "${switchCode}").`);
+
+    await sendEmail(
+      status ? "Solar Heater Activated" : "Solar Heater Deactivated",
+      status
+        ? "The solar heater has been switched ON — cloud cover is high (>75%), solar gain is low."
+        : "The solar heater has been switched OFF — it's a sunny day, solar gain is sufficient.",
+    );
+  } catch (error: any) {
+    console.log("Error controlling device:", error);
+    await sendEmail(
+      "Error Controlling Device",
+      `Failed to control the device: ${error.message}`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 const cloudCoverDaytimeAvg = await getAverageCloudCover();
-console.log(`Average daytime cloud cover: ${cloudCoverDaytimeAvg}%`);
+console.log(`Average daytime cloud cover: ${cloudCoverDaytimeAvg.toFixed(1)}%`);
 
-// -1 mean something when wrong when fetching data
 if (cloudCoverDaytimeAvg > -1) {
-  // If cloud cover is above 75% we can switch on the solar panels
-  setDeviceStatus(cloudCoverDaytimeAvg > 75);
-}
-else {
-  sendEmail(
+  // Switch ON when cloud cover > 75% (solar heater needed), OFF when sunny
+  await setDeviceStatus(cloudCoverDaytimeAvg > 75);
+} else {
+  await sendEmail(
     "Error Fetching Weather Data",
-    "There was an error fetching the weather data. Please check the logs for details."
+    "Could not fetch weather data from Open-Meteo. Check the logs for details.",
   );
 }
