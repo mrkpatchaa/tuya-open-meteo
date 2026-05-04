@@ -39,32 +39,102 @@ async function sendEmail(subject: string, text: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Open-Meteo weather
+// Open-Meteo — composite solar sufficiency score
 // ---------------------------------------------------------------------------
 
-async function getAverageCloudCover(): Promise<number> {
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${process.env.LATITUDE}&longitude=${process.env.LONGITUDE}&hourly=cloud_cover&timezone=auto&forecast_days=1`;
-  console.log(url);
+// Weights must sum to 1.0
+const WEIGHTS = {
+  shortwave:  0.40, // W/m²  — actual solar energy at the surface (most direct)
+  direct:     0.30, // W/m²  — direct beam only, most relevant for panel efficiency
+  sunshine:   0.20, // s/hr  — independent measure of real sunshine
+  cloudClear: 0.10, // %     — coarsest proxy, kept as a cross-check
+};
+
+// Approximate sunny-day averages for Morocco (9 am–4 pm window).
+// Used to normalise each variable to a 0–1 scale.
+const NORM = {
+  shortwave:  700,  // W/m²
+  direct:     600,  // W/m²
+  sunshine:   3600, // s (full hour = completely sunny)
+  cloudClear: 100,  // % clear sky
+};
+
+// Score threshold: below this value the heater turns ON.
+// Configurable via SOLAR_SCORE_THRESHOLD env var (0–1).
+const THRESHOLD = Number(process.env.SOLAR_SCORE_THRESHOLD ?? 0.50);
+
+interface SolarScore {
+  score: number;        // 0–1, higher = more solar gain
+  needsHeater: boolean;
+  components: {
+    shortwave:    number; // normalised 0–1
+    direct:       number;
+    sunshine:     number;
+    cloudClear:   number;
+    precipPenalty: number;
+  };
+  raw: {
+    shortwaveAvg:  number; // W/m²
+    directAvg:     number; // W/m²
+    sunshineAvg:   number; // s/hr
+    cloudAvg:      number; // %
+    precipTotal:   number; // mm
+  };
+}
+
+async function getSolarScore(): Promise<SolarScore | null> {
+  const vars = "shortwave_radiation,direct_radiation,sunshine_duration,cloud_cover,precipitation";
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${process.env.LATITUDE}&longitude=${process.env.LONGITUDE}&hourly=${vars}&timezone=auto&forecast_days=1`;
+
   try {
     const response = await fetch(url);
-
     if (!response.ok) {
-      console.log(`HTTP error fetching weather: ${response.status}`);
-      return -1;
+      console.log(`Open-Meteo HTTP error: ${response.status}`);
+      return null;
     }
 
     const data = await response.json();
+    const h = data.hourly;
 
-    // Average cloud cover between 9 am and 4 pm local time
-    const cloudCoverDaytime = data.hourly.cloud_cover.slice(9, 16);
-    const avg =
-      cloudCoverDaytime.reduce((a: number, b: number) => a + b, 0) /
-      cloudCoverDaytime.length;
+    // 9 am–4 pm local time (indices 9–16)
+    const slice = (arr: number[]) => arr.slice(9, 16);
+    const avg   = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const clamp = (v: number)     => Math.min(1, Math.max(0, v));
 
-    return avg;
+    const shortwaveAvg = avg(slice(h.shortwave_radiation));
+    const directAvg    = avg(slice(h.direct_radiation));
+    const sunshineAvg  = avg(slice(h.sunshine_duration));
+    const cloudAvg     = avg(slice(h.cloud_cover));
+    const precipTotal  = slice(h.precipitation).reduce((a: number, b: number) => a + b, 0);
+
+    // Normalise each component to 0–1 (1 = maximum solar gain)
+    const nShortwave  = clamp(shortwaveAvg / NORM.shortwave);
+    const nDirect     = clamp(directAvg    / NORM.direct);
+    const nSunshine   = clamp(sunshineAvg  / NORM.sunshine);
+    const nCloudClear = clamp((100 - cloudAvg) / NORM.cloudClear);
+
+    // Precipitation is a multiplicative penalty on the final score
+    const precipPenalty = precipTotal > 2 ? 0.50   // heavy rain  → ×0.50
+                        : precipTotal > 0.5 ? 0.75  // light rain  → ×0.75
+                        : 1.0;                       // dry         → no change
+
+    const rawScore =
+      WEIGHTS.shortwave  * nShortwave  +
+      WEIGHTS.direct     * nDirect     +
+      WEIGHTS.sunshine   * nSunshine   +
+      WEIGHTS.cloudClear * nCloudClear;
+
+    const score = rawScore * precipPenalty;
+
+    return {
+      score,
+      needsHeater: score < THRESHOLD,
+      components: { shortwave: nShortwave, direct: nDirect, sunshine: nSunshine, cloudClear: nCloudClear, precipPenalty },
+      raw: { shortwaveAvg, directAvg, sunshineAvg, cloudAvg, precipTotal },
+    };
   } catch (error) {
     console.log("Error fetching weather data:", error);
-    return -1;
+    return null;
   }
 }
 
@@ -195,8 +265,8 @@ async function setDeviceStatus(status: boolean): Promise<void> {
     await sendEmail(
       status ? "Solar Heater Activated" : "Solar Heater Deactivated",
       status
-        ? "The solar heater has been switched ON — cloud cover is high (>75%), solar gain is low."
-        : "The solar heater has been switched OFF — it's a sunny day, solar gain is sufficient.",
+        ? "The solar heater has been switched ON — solar gain is insufficient today."
+        : "The solar heater has been switched OFF — solar gain is sufficient today.",
     );
   } catch (error: any) {
     console.log("Error controlling device:", error);
@@ -211,15 +281,25 @@ async function setDeviceStatus(status: boolean): Promise<void> {
 // Main
 // ---------------------------------------------------------------------------
 
-const cloudCoverDaytimeAvg = await getAverageCloudCover();
-console.log(`Average daytime cloud cover: ${cloudCoverDaytimeAvg.toFixed(1)}%`);
+const solar = await getSolarScore();
 
-if (cloudCoverDaytimeAvg > -1) {
-  // Switch ON when cloud cover > 75% (solar heater needed), OFF when sunny
-  await setDeviceStatus(cloudCoverDaytimeAvg > 75);
-} else {
+if (!solar) {
   await sendEmail(
     "Error Fetching Weather Data",
     "Could not fetch weather data from Open-Meteo. Check the logs for details.",
   );
+} else {
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+
+  console.log("─── Solar score breakdown (9 am–4 pm average) ───");
+  console.log(`  Shortwave radiation : ${solar.raw.shortwaveAvg.toFixed(0)} W/m²  → ${pct(solar.components.shortwave)} (weight 40%)`);
+  console.log(`  Direct radiation    : ${solar.raw.directAvg.toFixed(0)} W/m²  → ${pct(solar.components.direct)} (weight 30%)`);
+  console.log(`  Sunshine duration   : ${solar.raw.sunshineAvg.toFixed(0)} s/hr  → ${pct(solar.components.sunshine)} (weight 20%)`);
+  console.log(`  Cloud-free sky      : ${(100 - solar.raw.cloudAvg).toFixed(0)}%  → ${pct(solar.components.cloudClear)} (weight 10%)`);
+  console.log(`  Precipitation total : ${solar.raw.precipTotal.toFixed(1)} mm  → penalty ×${solar.components.precipPenalty}`);
+  console.log(`  ──────────────────────────────────────────────`);
+  console.log(`  Final score         : ${pct(solar.score)}  (threshold: ${pct(THRESHOLD)})`);
+  console.log(`  Decision            : heater ${solar.needsHeater ? "ON" : "OFF"}`);
+
+  await setDeviceStatus(solar.needsHeater);
 }
