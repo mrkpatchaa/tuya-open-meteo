@@ -84,7 +84,9 @@ Verify with `gh secret list`.
 
 ```bash
 npm install
-npm start
+cp .env.example .env
+# Configure variables
+npm run dev
 ```
 
 ## Tuning
