@@ -2,10 +2,10 @@
   "name": "tuya-open-meteo",
   "version": "1.0.0",
   "description": "Automate a solar heater via Tuya Cloud API based on daily cloud cover forecast",
-  "main": "index.js",
+  "main": "index.ts",
   "type": "module",
   "scripts": {
-    "dev": "node --env-file=.env index.ts",
+    "dev": "tsx --env-file=.env index.ts",
     "start": "tsx index.ts"
   },
   "keywords": [],
