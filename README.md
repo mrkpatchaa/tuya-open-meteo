@@ -2,7 +2,7 @@
 
 Automatically switches a Tuya smart relay ON or OFF every day based on a **weighted solar sufficiency score** computed from four Open-Meteo forecast variables. If the score falls below a configurable threshold (default 50%), the solar heater is turned ON (solar gain is insufficient). Otherwise it is turned OFF (sunny enough for the panels).
 
-A notification email including a full score breakdown is sent after every run.
+A notification email including a full score breakdown is sent after every run. Optionally, a **Telegram bot** sends the score as an interactive message so you can override the decision before it executes.
 
 ## How the score works
 
@@ -40,7 +40,11 @@ Scheduled via **GitHub Actions** at **17:00 Morocco time (16:00 UTC)** daily, so
 
 ```
 .github/workflows/solar.yml  →  runs index.ts  →  Open-Meteo API + Tuya Cloud API
+                                                  ↕ (optional)
+                                              Telegram bot
 ```
+
+When Telegram is configured, the workflow pauses waiting for your tap (default **10 minutes**, configurable via `TELEGRAM_TIMEOUT_MIN`). If you don't respond in time, the automatic decision executes.
 
 ## Setup
 
@@ -69,6 +73,9 @@ Copy `.env.example` to `.env` and fill in all values:
 | `SMTP_HOST/PORT/USER/PASS` | SMTP credentials for notification emails |
 | `EMAIL_FROM` / `EMAIL_TO` | Sender and recipient addresses |
 | `MAIL_SUBJECT_PREFIX` | *(optional)* Prefix added to every email subject |
+| `TELEGRAM_BOT_TOKEN` | *(optional)* Bot token from @BotFather — enables interactive overrides |
+| `TELEGRAM_CHAT_ID` | *(optional)* Your personal chat ID (see Telegram setup below) |
+| `TELEGRAM_TIMEOUT_MIN` | *(optional)* Minutes to wait for a Telegram response before auto-executing, default `10` |
 
 ### 3. Push secrets to GitHub
 
@@ -88,6 +95,53 @@ cp .env.example .env
 # Configure variables
 npm run dev
 ```
+
+### 5. Telegram bot setup (optional)
+
+The Telegram integration is entirely optional. When both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, the workflow sends you a message like this before acting:
+
+```
+☀️ Solar Heater — Daily Decision
+
+Shortwave : 312 W/m²  → 44.6% (40%)
+Direct    : 198 W/m²  → 33.0% (30%)
+Sunshine  : 2180 s/hr → 60.6% (20%)
+Cloud-free: 55%       → 55.0% (10%)
+Rain      : 0.0 mm    → ×1
+─────────────────────────────────
+Score     : 44.9%  (threshold: 50.0%)
+Auto      : 🔥 ON
+
+Override or confirm below (auto-executes in 10 min):
+[ 🔥 Turn ON ]  [ ✅ Turn OFF ]  [ 🤖 Auto ]
+```
+
+**Step 1 — Create a bot**
+
+1. Open Telegram and start a chat with [@BotFather](https://t.me/BotFather)
+2. Send `/newbot` and follow the prompts
+3. Copy the **HTTP API token** it gives you → `TELEGRAM_BOT_TOKEN`
+
+**Step 2 — Get your chat ID**
+
+1. Start a conversation with your new bot (send it any message)
+2. Open this URL in your browser (replace `<TOKEN>` with your token):
+   ```
+   https://api.telegram.org/bot<TOKEN>/getUpdates
+   ```
+3. Find `"chat":{"id": 123456789, ...}` in the response → that number is your `TELEGRAM_CHAT_ID`
+
+> Alternatively, forward any message to [@userinfobot](https://t.me/userinfobot) — it replies with your chat ID instantly.
+
+**Step 3 — Add the secrets**
+
+Add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to your `.env`, then push to GitHub:
+
+```bash
+gh secret set --env-file .env
+```
+
+If you skip this setup, the script runs fully automatically without any Telegram interaction.
 
 ## Tuning
 
