@@ -2,7 +2,7 @@ import { type SolarScore, THRESHOLD } from "./solar.js";
 
 export type TelegramDecision = "ON" | "OFF" | "AUTO";
 
-const TELEGRAM_WAIT_MS = Number(process.env.TELEGRAM_TIMEOUT_MIN ?? 10) * 60 * 1000;
+const TELEGRAM_WAIT_MS = Number(process.env.TELEGRAM_TIMEOUT_MIN || 10) * 60 * 1000;
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 
@@ -32,7 +32,7 @@ async function getLatestUpdateId(): Promise<number> {
 
 function buildTelegramMessage(solar: SolarScore, footer?: string): string {
     const autoLabel = solar.needsHeater ? "🔥 ON" : "✅ OFF";
-    const waitMin = Number(process.env.TELEGRAM_TIMEOUT_MIN ?? 10);
+    const waitMin = Number(process.env.TELEGRAM_TIMEOUT_MIN || 10);
     const defaultFooter = `Override or confirm below <i>(auto-executes in ${waitMin} min)</i>:`;
 
     return [
@@ -78,7 +78,7 @@ async function askWife(solar: SolarScore): Promise<TelegramDecision> {
     const deadline = Date.now() + TELEGRAM_WAIT_MS;
     let offset = startOffset + 1;
 
-    const waitMin = Number(process.env.TELEGRAM_TIMEOUT_MIN ?? 10);
+    const waitMin = Number(process.env.TELEGRAM_TIMEOUT_MIN || 10);
     console.log(`Message sent to wife (id: ${wifeMsgId}). Waiting up to ${waitMin} min for her response…`);
 
     while (Date.now() < deadline) {
@@ -163,7 +163,7 @@ export async function askTelegram(solar: SolarScore): Promise<TelegramDecision> 
     const deadline = Date.now() + TELEGRAM_WAIT_MS;
     let offset = startOffset + 1;
 
-    const waitMin = Number(process.env.TELEGRAM_TIMEOUT_MIN ?? 10);
+    const waitMin = Number(process.env.TELEGRAM_TIMEOUT_MIN || 10);
     console.log(`Telegram message sent (id: ${sentMessageId}). Waiting up to ${waitMin} min for response…`);
 
     while (Date.now() < deadline) {
