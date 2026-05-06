@@ -2,7 +2,7 @@
 
 Automatically switches a Tuya smart relay ON or OFF every day based on a **weighted solar sufficiency score** computed from four Open-Meteo forecast variables. If the score falls below a configurable threshold (default 50%), the solar heater is turned ON (solar gain is insufficient). Otherwise it is turned OFF (sunny enough for the panels).
 
-A notification email including a full score breakdown is sent after every run. Optionally, a **Telegram bot** sends the score as an interactive message so you can override the decision before it executes.
+After every run a notification is sent via the first available channel: **Telegram** (when configured — also provides interactive decision override) → **Email** → console only.
 
 ## How the score works
 
@@ -76,7 +76,7 @@ Copy `.env.example` to `.env` and fill in all values:
 | `TELEGRAM_BOT_TOKEN` | *(optional)* Bot token from @BotFather — enables interactive overrides |
 | `TELEGRAM_CHAT_ID` | *(optional)* Your personal chat ID (see Telegram setup below) |
 | `TELEGRAM_TIMEOUT_MIN` | *(optional)* Minutes to wait for a Telegram response before auto-executing, default `10` |
-| `TELEGRAM_WIFE_CHAT_ID` | *(optional)* Wife's Telegram chat ID — replaces the 🤖 Auto button with 👰 Ask Wife. She must start a chat with the same bot first. |
+| `TELEGRAM_WIFE_CHAT_ID` | *(optional)* Wife's Telegram chat ID — replaces the 🤖 Auto button with 👩🏾 Ask Wife. She must start a chat with the same bot first. |
 
 ### 3. Push secrets to GitHub
 
@@ -97,9 +97,9 @@ cp .env.example .env
 npm run dev
 ```
 
-### 5. Telegram bot setup (optional)
+### 5. Telegram bot setup (optional, recommended)
 
-The Telegram integration is entirely optional. When both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, the workflow sends you a message like this before acting:
+When `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, Telegram becomes the **primary notification channel** (replacing email). Additionally, the workflow pauses and sends you an interactive message so you can override the decision before it executes:
 
 ```
 ☀️ Solar Heater — Daily Decision
@@ -146,7 +146,7 @@ If you skip this setup, the script runs fully automatically without any Telegram
 
 **Ask Wife button (optional)**
 
-Set `TELEGRAM_WIFE_CHAT_ID` to replace the 🤖 Auto button with 👰 Ask Wife. When you tap it, the same bot sends your wife the same solar breakdown with Turn ON / Turn OFF buttons. She has the same timeout window to respond; if she doesn't, the automatic decision runs.
+Set `TELEGRAM_WIFE_CHAT_ID` to replace the 🤖 Auto button with 👩🏾 Ask Wife. When you tap it, the same bot sends your wife the same solar breakdown with Turn ON / Turn OFF buttons. She has the same timeout window to respond; if she doesn't, the automatic decision runs.
 
 To get her chat ID: ask her to start a chat with the same bot (search by bot name, tap Start), then use the `getUpdates` URL from Step 2 above — her `"chat":{"id":...}` will appear in the results.
 

@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "crypto";
-import { sendEmail } from "./email.js";
+import { sendNotification } from "./notify.js";
 
 const TUYA_BASE_URL = process.env.TUYA_BASE_URL ?? "https://openapi.tuyaeu.com";
 
@@ -111,20 +111,20 @@ export async function setDeviceStatus(status: boolean): Promise<void> {
         console.log(`Device turned ${status ? "ON" : "OFF"} via Tuya Cloud API (DP: "${switchCode}").`);
     } catch (error: any) {
         console.log("Error controlling device:", error);
-        await sendEmail("Error Controlling Device", `Failed to control the device: ${error.message}`).catch(
+        await sendNotification("Error Controlling Device", `Failed to control the device: ${error.message}`).catch(
             (emailError) => console.log("Failed to send error notification email:", emailError),
         );
         return;
     }
 
     try {
-        await sendEmail(
+        await sendNotification(
             status ? "Solar Heater Activated" : "Solar Heater Deactivated",
             status
                 ? "The solar heater has been switched ON — solar gain is insufficient today."
                 : "The solar heater has been switched OFF — solar gain is sufficient today.",
         );
     } catch (error: any) {
-        console.log("Error sending notification email:", error);
+        console.log("Error sending notification:", error);
     }
 }

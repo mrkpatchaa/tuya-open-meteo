@@ -139,7 +139,7 @@ export async function askTelegram(solar: SolarScore): Promise<TelegramDecision> 
 
     const wifeConfigured = Boolean(process.env.TELEGRAM_WIFE_CHAT_ID);
     const thirdButton = wifeConfigured
-        ? { text: "👰 Ask Wife", callback_data: "WIFE" }
+        ? { text: "👩🏾 Ask Wife", callback_data: "WIFE" }
         : { text: "🤖 Auto", callback_data: "AUTO" };
     const sent = await telegramPost("sendMessage", {
         chat_id: chatId,
@@ -191,12 +191,12 @@ export async function askTelegram(solar: SolarScore): Promise<TelegramDecision> 
             if (cb.data === "WIFE") {
                 await telegramPost("answerCallbackQuery", {
                     callback_query_id: cb.id,
-                    text: "Asking your wife… 👰",
+                    text: "Asking your wife… 👩🏾",
                 });
                 await telegramPost("editMessageText", {
                     chat_id: chatId,
                     message_id: sentMessageId,
-                    text: buildTelegramMessage(solar, "👰 Asking wife…"),
+                    text: buildTelegramMessage(solar, "👩🏾 Asking wife…"),
                     parse_mode: "HTML",
                     reply_markup: { inline_keyboard: [] },
                 });
@@ -233,4 +233,17 @@ export async function askTelegram(solar: SolarScore): Promise<TelegramDecision> 
 
     console.log("Telegram timed out — falling back to automatic decision.");
     return "AUTO";
+}
+
+export async function sendTelegramMessage(subject: string, body: string): Promise<void> {
+    const chatId = process.env.TELEGRAM_CHAT_ID!;
+    const text = `<b>${subject}</b>\n\n${body}`;
+    const result = await telegramPost("sendMessage", {
+        chat_id: chatId,
+        text,
+        parse_mode: "HTML",
+    });
+    if (!result.ok) {
+        console.log("Telegram sendMessage (notification) failed:", JSON.stringify(result));
+    }
 }

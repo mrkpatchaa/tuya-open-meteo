@@ -1,5 +1,5 @@
 import "./logger";
-import { sendEmail } from "./email";
+import { sendNotification } from "./notify";
 import { getSolarScore, THRESHOLD } from "./solar";
 import { setDeviceStatus } from "./tuya";
 import { askTelegram } from "./telegram";
@@ -11,7 +11,7 @@ import { askTelegram } from "./telegram";
 const solar = await getSolarScore();
 
 if (!solar) {
-  await sendEmail(
+  await sendNotification(
     "Error Fetching Weather Data",
     "Could not fetch weather data from Open-Meteo. Check the logs for details.",
   );
