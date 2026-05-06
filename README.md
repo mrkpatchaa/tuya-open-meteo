@@ -76,6 +76,7 @@ Copy `.env.example` to `.env` and fill in all values:
 | `TELEGRAM_BOT_TOKEN` | *(optional)* Bot token from @BotFather — enables interactive overrides |
 | `TELEGRAM_CHAT_ID` | *(optional)* Your personal chat ID (see Telegram setup below) |
 | `TELEGRAM_TIMEOUT_MIN` | *(optional)* Minutes to wait for a Telegram response before auto-executing, default `10` |
+| `TELEGRAM_WIFE_CHAT_ID` | *(optional)* Wife's Telegram chat ID — replaces the 🤖 Auto button with 👰 Ask Wife. She must start a chat with the same bot first. |
 
 ### 3. Push secrets to GitHub
 
@@ -142,6 +143,12 @@ gh secret set --env-file .env
 ```
 
 If you skip this setup, the script runs fully automatically without any Telegram interaction.
+
+**Ask Wife button (optional)**
+
+Set `TELEGRAM_WIFE_CHAT_ID` to replace the 🤖 Auto button with 👰 Ask Wife. When you tap it, the same bot sends your wife the same solar breakdown with Turn ON / Turn OFF buttons. She has the same timeout window to respond; if she doesn't, the automatic decision runs.
+
+To get her chat ID: ask her to start a chat with the same bot (search by bot name, tap Start), then use the `getUpdates` URL from Step 2 above — her `"chat":{"id":...}` will appear in the results.
 
 ## Tuning
 

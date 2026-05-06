@@ -30,9 +30,10 @@ async function getLatestUpdateId(): Promise<number> {
     return 0;
 }
 
-function buildTelegramMessage(solar: SolarScore): string {
+function buildTelegramMessage(solar: SolarScore, footer?: string): string {
     const autoLabel = solar.needsHeater ? "🔥 ON" : "✅ OFF";
     const waitMin = Number(process.env.TELEGRAM_TIMEOUT_MIN ?? 10);
+    const defaultFooter = `Override or confirm below <i>(auto-executes in ${waitMin} min)</i>:`;
 
     return [
         "<b>☀️ Solar Heater — Daily Decision</b>",
@@ -48,8 +49,85 @@ function buildTelegramMessage(solar: SolarScore): string {
         `Auto      : ${autoLabel}`,
         "</pre>",
         "",
-        `Override or confirm below <i>(auto-executes in ${waitMin} min)</i>:`,
+        footer ?? defaultFooter,
     ].join("\n");
+}
+
+async function askWife(solar: SolarScore): Promise<TelegramDecision> {
+    const wifeChatId = process.env.TELEGRAM_WIFE_CHAT_ID!;
+    const startOffset = await getLatestUpdateId();
+
+    const sent = await telegramPost("sendMessage", {
+        chat_id: wifeChatId,
+        text: buildTelegramMessage(solar, "Your husband can't decide 🙃 — what should the heater do?"),
+        parse_mode: "HTML",
+        reply_markup: {
+            inline_keyboard: [[
+                { text: "🔥 Turn ON", callback_data: "ON" },
+                { text: "❌ Turn OFF", callback_data: "OFF" },
+            ]],
+        },
+    });
+
+    if (!sent.ok) {
+        console.log("Telegram sendMessage to wife failed:", JSON.stringify(sent));
+        return "AUTO";
+    }
+
+    const wifeMsgId: number = sent.result.message_id;
+    const deadline = Date.now() + TELEGRAM_WAIT_MS;
+    let offset = startOffset + 1;
+
+    const waitMin = Number(process.env.TELEGRAM_TIMEOUT_MIN ?? 10);
+    console.log(`Message sent to wife (id: ${wifeMsgId}). Waiting up to ${waitMin} min for her response…`);
+
+    while (Date.now() < deadline) {
+        const remainingSec = Math.floor((deadline - Date.now()) / 1000);
+        const pollTimeout = Math.min(30, remainingSec);
+        if (pollTimeout <= 0) break;
+
+        const data = await (
+            await fetch(
+                `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getUpdates?offset=${offset}&timeout=${pollTimeout}`,
+            )
+        ).json();
+
+        if (!data.ok) {
+            await sleep(5_000);
+            continue;
+        }
+
+        for (const update of data.result as any[]) {
+            offset = update.update_id + 1;
+            const cb = update.callback_query;
+            if (!cb || cb.message.message_id !== wifeMsgId) continue;
+
+            const choice = cb.data as TelegramDecision;
+
+            await telegramPost("answerCallbackQuery", {
+                callback_query_id: cb.id,
+                text: `Got it — heater will be turned ${choice}.`,
+            });
+
+            await telegramPost("editMessageReplyMarkup", {
+                chat_id: wifeChatId,
+                message_id: wifeMsgId,
+                reply_markup: { inline_keyboard: [] },
+            });
+
+            console.log(`Wife's decision: ${choice}`);
+            return choice;
+        }
+    }
+
+    await telegramPost("editMessageReplyMarkup", {
+        chat_id: wifeChatId,
+        message_id: wifeMsgId,
+        reply_markup: { inline_keyboard: [] },
+    }).catch(() => { });
+
+    console.log("Wife timed out — falling back to automatic decision.");
+    return "AUTO";
 }
 
 export async function askTelegram(solar: SolarScore): Promise<TelegramDecision> {
@@ -59,6 +137,10 @@ export async function askTelegram(solar: SolarScore): Promise<TelegramDecision> 
     // callback queries that arrive after our message.
     const startOffset = await getLatestUpdateId();
 
+    const wifeConfigured = Boolean(process.env.TELEGRAM_WIFE_CHAT_ID);
+    const thirdButton = wifeConfigured
+        ? { text: "👰 Ask Wife", callback_data: "WIFE" }
+        : { text: "🤖 Auto", callback_data: "AUTO" };
     const sent = await telegramPost("sendMessage", {
         chat_id: chatId,
         text: buildTelegramMessage(solar),
@@ -67,7 +149,7 @@ export async function askTelegram(solar: SolarScore): Promise<TelegramDecision> 
             inline_keyboard: [[
                 { text: "🔥 Turn ON", callback_data: "ON" },
                 { text: "❌ Turn OFF", callback_data: "OFF" },
-                { text: "🤖 Auto", callback_data: "AUTO" },
+                thirdButton,
             ]],
         },
     });
@@ -105,6 +187,22 @@ export async function askTelegram(solar: SolarScore): Promise<TelegramDecision> 
             offset = update.update_id + 1;
             const cb = update.callback_query;
             if (!cb) continue;
+
+            if (cb.data === "WIFE") {
+                await telegramPost("answerCallbackQuery", {
+                    callback_query_id: cb.id,
+                    text: "Asking your wife… 👰",
+                });
+                await telegramPost("editMessageText", {
+                    chat_id: chatId,
+                    message_id: sentMessageId,
+                    text: buildTelegramMessage(solar, "👰 Asking wife…"),
+                    parse_mode: "HTML",
+                    reply_markup: { inline_keyboard: [] },
+                });
+                console.log("Escalating decision to wife…");
+                return await askWife(solar);
+            }
 
             const choice = cb.data as TelegramDecision;
 
