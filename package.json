@@ -1,21 +1,23 @@
 {
   "name": "tuya-open-meteo",
   "version": "1.0.0",
-  "description": "Automate a solar heater via Tuya Cloud API based on daily cloud cover forecast",
+  "description": "Automate a solar heater via the Tuya Cloud API or a local network connection",
   "main": "index.ts",
   "type": "module",
   "scripts": {
     "dev": "tsx --env-file=.env index.ts",
-    "start": "tsx index.ts"
+    "start": "tsx index.ts",
+    "test": "tsx --test tests/*.test.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "nodemailer": "^7.0.6"
+    "nodemailer": "^7.0.6",
+    "tuyapi": "^7.7.1"
   },
   "devDependencies": {
-    "tsx": "^4.19.4",
-    "@types/nodemailer": "^6.4.17"
+    "@types/nodemailer": "^6.4.17",
+    "tsx": "^4.19.4"
   }
 }

@@ -1,6 +1,6 @@
 # Solar Heater Control with Open-Meteo
 
-Automatically switches a Tuya smart relay ON or OFF every day based on a **weighted solar sufficiency score** computed from four Open-Meteo forecast variables. If the score falls below a configurable threshold (default 50%), the solar heater is turned ON (solar gain is insufficient). Otherwise it is turned OFF (sunny enough for the panels).
+Automatically switches a Tuya smart relay ON or OFF every day based on a **weighted solar sufficiency score** computed from four Open-Meteo forecast variables. The relay can be controlled through the **Tuya Cloud API** from GitHub Actions or directly over the **local network** from a host such as the Debian server. If the score falls below a configurable threshold (default 50%), the solar heater is turned ON (solar gain is insufficient). Otherwise it is turned OFF (sunny enough for the panels).
 
 After every run a notification is sent via the first available channel: **Telegram** (when configured — also provides interactive decision override) → **Email** → console only.
 
@@ -42,13 +42,26 @@ Scheduled via **GitHub Actions** at **17:00 Morocco time (16:00 UTC)** daily, so
 .github/workflows/solar.yml  →  runs index.ts  →  Open-Meteo API + Tuya Cloud API
                                                   ↕ (optional)
                                               Telegram bot
+
+Debian/Raspberry Pi  →  runs index.ts  →  Open-Meteo API + Tuya local network API
+                                                  ↕ (optional)
+                                              Telegram bot
 ```
 
 When Telegram is configured, the workflow pauses waiting for your tap (default **10 minutes**, configurable via `TELEGRAM_TIMEOUT_MIN`). If you don't respond in time, the automatic decision executes.
 
 ## Setup
 
-### 1. Tuya Cloud credentials
+### 1. Tuya transport mode
+
+Set `TUYA_MODE` to select how the relay is controlled:
+
+- `TUYA_MODE=cloud` uses the Tuya Cloud API. This is the default and is required for the GitHub-hosted workflow.
+- `TUYA_MODE=local` uses [TuyAPI](https://github.com/codetheweb/tuyapi) to discover and control the device over UDP/TCP on the same LAN. This bypasses the Tuya Cloud platform, but the process must run on a host connected to that network.
+
+For local mode, obtain `TUYA_DEVICE_KEY` using the [TuyAPI setup instructions](https://github.com/codetheweb/tuyapi/blob/master/docs/SETUP.md). The key is separate from `TUYA_ACCESS_ID` and `TUYA_ACCESS_SECRET`; local mode does not need Cloud credentials. The device may use the default boolean DP 1, as used by the original LAN implementation.
+
+### 2. Tuya Cloud credentials (cloud mode)
 
 1. Create a free account at [iot.tuya.com](https://iot.tuya.com)
 2. **Cloud → Create Cloud Project** — pick *Smart Home* scenario, *Europe* region
@@ -57,17 +70,19 @@ When Telegram is configured, the workflow pauses waiting for your tap (default *
 
 > The free trial expires periodically — renew it under your project's subscription settings.
 
-### 2. Configure environment variables
+### 3. Configure environment variables
 
 Copy `.env.example` to `.env` and fill in all values:
 
 | Variable | Description |
 |---|---|
-| `TUYA_ACCESS_ID` | Tuya Cloud project Access ID |
-| `TUYA_ACCESS_SECRET` | Tuya Cloud project Access Secret |
+| `TUYA_MODE` | Transport mode: `cloud` (default) or `local` |
+| `TUYA_ACCESS_ID` | Tuya Cloud project Access ID — cloud mode only |
+| `TUYA_ACCESS_SECRET` | Tuya Cloud project Access Secret — cloud mode only |
 | `TUYA_DEVICE_ID` | Device ID (visible in the Tuya app or IoT console) |
-| `TUYA_BASE_URL` | Regional endpoint — `https://openapi.tuyaeu.com` for Europe/Africa |
-| `TUYA_SWITCH_CODE` | *(optional)* Force a specific DP code (auto-discovered if omitted) |
+| `TUYA_DEVICE_KEY` | Local device encryption key — required for `local` mode only |
+| `TUYA_BASE_URL` | Regional endpoint — `https://openapi.tuyaeu.com` for Europe/Africa — cloud mode only |
+| `TUYA_SWITCH_CODE` | *(optional)* Force a specific Cloud DP code (auto-discovered if omitted) |
 | `LATITUDE` / `LONGITUDE` | Location for the weather forecast |
 | `SOLAR_SCORE_THRESHOLD` | *(optional)* Score below which the heater turns ON, default `0.50` |
 | `SMTP_HOST/PORT/USER/PASS` | SMTP credentials for notification emails |
@@ -78,7 +93,7 @@ Copy `.env.example` to `.env` and fill in all values:
 | `TELEGRAM_TIMEOUT_MIN` | *(optional)* Minutes to wait for a Telegram response before auto-executing, default `10` |
 | `TELEGRAM_WIFE_CHAT_ID` | *(optional)* Wife's Telegram chat ID — replaces the 🤖 Auto button with 👩🏾 Ask Wife. She must start a chat with the same bot first. |
 
-### 3. Push secrets to GitHub
+### 4. Push secrets to GitHub (cloud mode)
 
 Requires the [GitHub CLI](https://cli.github.com):
 
@@ -88,7 +103,9 @@ gh secret set --env-file .env
 
 Verify with `gh secret list`.
 
-### 4. Run locally
+### 5. Run locally
+
+For a normal Cloud-mode run:
 
 ```bash
 npm install
@@ -97,7 +114,25 @@ cp .env.example .env
 npm run dev
 ```
 
-### 5. Telegram bot setup (optional, recommended)
+For a same-network run from the Debian server, set these values in `.env`:
+
+```dotenv
+TUYA_MODE=local
+TUYA_DEVICE_ID=your-device-id
+TUYA_DEVICE_KEY=your-16-character-local-key
+```
+
+The Debian server must be on the same LAN/Wi-Fi as the relay. The process discovers the device locally, waits for the command acknowledgement, and then disconnects. Close the Tuya/Smart Life app if it holds a connection to the device, since a device accepts only one local TCP connection at a time.
+
+The existing GitHub-hosted workflow always uses `TUYA_MODE=cloud`; it cannot discover a device on your LAN. To run the scheduled local control, use a cron job or systemd timer on the Debian server, for example:
+
+```cron
+0 16 * * * cd /path/to/tuya-open-meteo && /usr/bin/npm run dev >> /var/log/tuya-open-meteo.log 2>&1
+```
+
+The server needs the same environment values and must be able to reach the relay on the local network.
+
+### 6. Telegram bot setup (optional, recommended)
 
 When `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set, Telegram becomes the **primary notification channel** (replacing email). Additionally, the workflow pauses and sends you an interactive message so you can override the decision before it executes:
 

@@ -25,9 +25,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run tests
+        run: npm test
+
       - name: Run solar heater script
         run: npm start
         env:
+          # GitHub-hosted runners cannot discover devices on the user's LAN.
+          # Local mode must run on a host on the same network as the device.
+          TUYA_MODE: cloud
+
           # Tuya Cloud API
           TUYA_ACCESS_ID: ${{ secrets.TUYA_ACCESS_ID }}
           TUYA_ACCESS_SECRET: ${{ secrets.TUYA_ACCESS_SECRET }}
