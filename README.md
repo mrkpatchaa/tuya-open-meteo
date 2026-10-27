@@ -50,6 +50,14 @@ Debian/Raspberry Pi  →  runs index.ts  →  Open-Meteo API + Tuya local networ
 
 When Telegram is configured, the workflow pauses waiting for your tap (default **10 minutes**, configurable via `TELEGRAM_TIMEOUT_MIN`). If you don't respond in time, the automatic decision executes.
 
+## score.ts (score only, for HomeOS)
+
+`node --import tsx score.ts` prints one JSON line on stdout and nothing else: `{"score", "threshold", "needsHeater", "components", "raw"}`. Logs go to stderr.
+
+- Env: `LATITUDE` and `LONGITUDE` (required), `SOLAR_SCORE_THRESHOLD` (optional, 0 to 1, default 0.50).
+- Exit codes: `0` ok, `1` no score (Open-Meteo failure or any error), `2` missing or invalid env. On non-zero exits stdout stays empty.
+- It sends no Telegram message and never switches the relay.
+
 ## Setup
 
 ### 1. Tuya transport mode
